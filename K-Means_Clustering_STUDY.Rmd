@@ -9,22 +9,174 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+This initial study will focus on the utilization of the tidymodels package.
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+**K-means** clustering will act as an example to introduce several tidying
+functions in this document.
+<br>
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+- tidy()
 
-```{r cars}
-summary(cars)
+- augment()
+
+- glance()
+
+<br>
+
+In fact, I have used these three functions in a recent workthrough provided by
+Julia Silge.
+
+<br>
+
+##Generate Data
+
+This study starts by generating random two-dimensional data with three clusters.
+The data in each cluster will come from a **mulivariate gaussian distribution**,
+with different means for each cluster:
+
+```{r echo=TRUE}
+library(tidymodels)
+
+set.seed(27)
+
+centers <- tibble(
+  cluster = factor(1:3),
+  num_points = c(100, 150, 50), # number of points in each cluster
+  x1 = c(5, 0, -3),             # x1 coordinate of cluster center
+  x2 = c(-1, 1, -2)             # x2 coordinate of cluster center
+)
+
+labelled_points <-
+  centers %>%
+  mutate(
+    x1 = map2(num_points, x1, rnorm), # generating multivariate normal random var.
+    x2 = map2(num_points, x2, rnorm)
+  ) %>%
+  select(-num_points) %>%
+  unnest(cols = c(x1, x2))
+
+ggplot(labelled_points, aes(x1, x2, color = cluster)) +
+  geom_point(alpha = 0.3)
+```
+<br>
+
+Notice the distinct group separation. This is an ideal case for k-means
+clustering.
+
+<br>
+
+## How Does K-Means Work? (Initial Finding)
+
+From what can be seen above, K-means takes data points as input and groups them
+into k clusters; in this case k = 3. Basically, as a clustering algorithm it
+can take new data and cluster it appropriately by measuring the euclidean distance
+between points as a measure of a similarity.
+
+<br>
+
+## Clustering in R
+
+The next function to introduce the **kmeans()** function, ehich accepts a data
+frame with all numeric columns as it's primary argument.
+
+<br>
+
+```{r echo=TRUE}
+points <-
+  labelled_points %>%
+  select(-cluster)
+
+kclust <- kmeans(points, centers = 3)
+kclust
+```
+```{r echo=TRUE}
+summary(kclust)
 ```
 
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r echo=TRUE}
+augment(kclust, points)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+Summarizing on a per-cluister level (3 clusters here)
+```{r echo=TRUE}
+tidy(kclust)
+```
+
+
+Extract a single row summary with the glance() function.
+```{r echo=TRUE}
+glance(kclust)
+```
+
+## Exploratory Clustering
+
+Let's explore the effect of different choices of k, from 1 to 9.
+<br>
+
+First, let's cluster the data 9 times, each using a different value of k, then
+we can create columns containing the tidied, glanced, and augmented data for
+comparisons.
+
+<br>
+
+```{r echo=TRUE}
+kclusts <-
+  tibble(k = 1:9) %>%
+  mutate(
+    kclust = map(k, ~kmeans(points, .x)),
+    tidied = map(kclust, tidy),
+    glanced = map(kclust, glance),
+    augmented = map(kclust, augment, points)
+  )
+kclusts
+```
+<br>
+
+Now lets separate these into individual datasets using tidy(), augment(), and
+glance().
+
+<br>
+
+```{r echo=TRUE}
+clusters <-
+  kclusts %>%
+  unnest(cols = c(tidied))
+
+assignments <-
+  kclusts %>%
+  unnest(cols = c(augmented))
+
+clusterings <-
+  kclusts %>%
+  unnest(cols = c(glanced))
+```
+
+```{r echo=TRUE}
+p1 <-
+  ggplot(assignments, aes(x = x1, y = x2)) +
+  geom_point(aes(color = .cluster), alpha = 0.8) +
+  facet_wrap(~ k)
+p1
+```
+
+
+```{r}
+p2 <- p1 + geom_point(data = clusters, size = 10, shape = "x")
+p2
+```
+
+```{r echo=TRUE}
+ggplot(clusterings, aes(k, tot.withinss)) +
+  geom_line() +
+  geom_point()
+```
+
+
+
+
+
+
+
+
+
